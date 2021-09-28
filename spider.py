@@ -1,0 +1,77 @@
+import sys
+from time import time
+import requests
+import re
+import tracemalloc
+
+
+def load_page_links(url, depth, ready_links, bad_links):
+    url = url.rstrip('/')
+    if not url.startswith('http'):
+        return None
+    if url in ready_links or url in bad_links:
+        return None
+    print(f'{depth} ... {url}')
+    try:
+        req = requests.get(url=url, timeout=3)
+    except requests.exceptions.RequestException as ex:
+        bad_links.append(url)
+        return None
+    if req.status_code != 200:
+        # некорректная ссылка
+        bad_links.append(url)
+        return None
+    titles = re.findall('\<title\>(.*)\<\/title\>', req.text)
+    if len(titles) > 0:
+        ready_links[url] = titles[0]
+    else:
+        bad_links.append(url)
+    if depth == 0:
+        return None
+    links = re.findall('\<a.*href=\"(\S*)\"', req.text)
+    for item in links:
+        if item.startswith('http'):
+            href = item.split('#')[0]
+        elif item.startswith('/'):
+            href = url + item
+        else:
+            continue
+        if href not in ready_links or href not in bad_links:
+            load_page_links(href, depth - 1, ready_links, bad_links)
+    return None
+
+
+def load_main_page(url, depth):
+    tracemalloc.start()
+    start_time = time()
+
+    ready_links = dict()
+    bad_links = list()
+    load_page_links(url, depth, ready_links, bad_links)
+    print(ready_links)
+    print(len(ready_links))
+    print(bad_links)
+
+    exec_time = time() - start_time
+    _, m_peak = tracemalloc.get_traced_memory()
+    print(f"ok, execution time {exec_time} s, peak memory usage is {m_peak / 10 ** 6}MB")
+    tracemalloc.stop()
+
+
+def get_links(url):
+    pass
+
+
+if __name__ == '__main__':
+    action = sys.argv[1].lower()
+    if action == 'load':
+        depth = 0
+        depth_key = '--depth'
+        if depth_key in sys.argv:
+            depth_arg = sys.argv[sys.argv.index(depth_key) + 1]
+            depth = int(depth_arg) if depth_arg.isdigit() else 0
+        load_main_page(sys.argv[2], depth)
+    elif action == 'get':
+        get_links(sys.argv[1])
+    else:
+        print(f'Wrong action {action}')
