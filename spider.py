@@ -5,20 +5,16 @@ import re
 import tracemalloc
 
 
-def load_page_links(url, depth, ready_links, bad_links):
+def load_page_links(url, current_depth, ready_links, bad_links):
     url = url.rstrip('/')
-    if not url.startswith('http'):
+    if not url.startswith('http') or url in ready_links or url in bad_links:
         return None
-    if url in ready_links or url in bad_links:
-        return None
-    print(f'{depth} ... {url}')
     try:
-        req = requests.get(url=url, timeout=3)
+        req = requests.get(url=url, timeout=3, headers={'accept': 'text/html'})
+        req.raise_for_status()
+        if 'html' not in req.headers['content-type']:
+            raise requests.exceptions.RequestException()
     except requests.exceptions.RequestException as ex:
-        bad_links.append(url)
-        return None
-    if req.status_code != 200:
-        # некорректная ссылка
         bad_links.append(url)
         return None
     titles = re.findall('\<title\>(.*)\<\/title\>', req.text)
@@ -26,36 +22,38 @@ def load_page_links(url, depth, ready_links, bad_links):
         ready_links[url] = titles[0]
     else:
         bad_links.append(url)
-    if depth == 0:
+    if current_depth == 0:
         return None
     links = re.findall('\<a.*href=\"(\S*)\"', req.text)
     for item in links:
         if item.startswith('http'):
-            href = item.split('#')[0]
+            href = item
         elif item.startswith('/'):
             href = url + item
         else:
             continue
+        href = href.split('#')[0]
+        href = href.rstrip('/')
         if href not in ready_links or href not in bad_links:
-            load_page_links(href, depth - 1, ready_links, bad_links)
+            load_page_links(href, current_depth - 1, ready_links, bad_links)
     return None
 
 
-def load_main_page(url, depth):
+def load_main_page(url, current_depth):
     tracemalloc.start()
     start_time = time()
 
     ready_links = dict()
     bad_links = list()
-    load_page_links(url, depth, ready_links, bad_links)
-    print(ready_links)
-    print(len(ready_links))
-    print(bad_links)
+    load_page_links(url, current_depth, ready_links, bad_links)
+    print(f"Ready links count: {len(ready_links)}")
+    print(f"Bad links count: {len(bad_links)}")
 
-    exec_time = time() - start_time
+    exec_time = round(time() - start_time, 2)
     _, m_peak = tracemalloc.get_traced_memory()
-    print(f"ok, execution time {exec_time} s, peak memory usage is {m_peak / 10 ** 6}MB")
     tracemalloc.stop()
+    m_peak = round(m_peak / 10 ** 6, 2)
+    print(f"ok, execution time {exec_time} s, peak memory usage is {m_peak} MB")
 
 
 def get_links(url):
